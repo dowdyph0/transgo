@@ -71,6 +71,7 @@ var patterns = []string{
 	"..%c1%9c",
 	"%252e%252e%255c",
 	"..%255c",
+	"..././",
 }
 
 func show(atk AttackData) {
